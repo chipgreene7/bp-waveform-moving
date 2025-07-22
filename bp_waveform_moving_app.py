@@ -26,9 +26,6 @@ buffer_size = int(fs * window_duration)
 # Session state for control
 if "running" not in st.session_state:
     st.session_state.running = False
-if "waveform_buffer" not in st.session_state:
-    st.session_state.waveform_buffer = np.full(buffer_size, diastolic)
-    st.session_state.time_buffer = np.linspace(-window_duration, 0, buffer_size)
 
 # Start/Stop buttons
 col1, col2 = st.columns(2)
@@ -43,14 +40,18 @@ with col2:
 def generate_beat_waveform():
     t = np.linspace(0, cycle_duration, int(fs * cycle_duration))
     # Simulate systolic upstroke
-    upstroke = np.exp(-((t - 0.2 * cycle_duration) ** 2) / (2 * (0.03 * cycle_duration) ** 2))
+    upstroke = np.exp(-((t - 0.15 * cycle_duration) ** 2) / (2 * (0.02 * cycle_duration) ** 2))
     # Simulate dicrotic notch
-    notch = -0.3 * np.exp(-((t - 0.5 * cycle_duration) ** 2) / (2 * (0.01 * cycle_duration) ** 2))
+    notch = -0.2 * np.exp(-((t - 0.4 * cycle_duration) ** 2) / (2 * (0.01 * cycle_duration) ** 2))
     # Simulate diastolic decay
-    decay = np.exp(-3 * t / cycle_duration)
+    decay = np.exp(-2 * t / cycle_duration)
     wave = upstroke + notch + decay
     wave = (wave - wave.min()) / (wave.max() - wave.min())
     return diastolic + wave * (systolic - diastolic)
+
+# Initialize buffer
+waveform_buffer = np.full(buffer_size, diastolic)
+time_buffer = np.linspace(-window_duration, 0, buffer_size)
 
 # Placeholder for plot
 plot_placeholder = st.empty()
@@ -58,17 +59,23 @@ plot_placeholder = st.empty()
 # Live update loop
 if st.session_state.running:
     beat_wave = generate_beat_waveform()
-    for sample in beat_wave:
-        if not st.session_state.running:
-            break
-        st.session_state.waveform_buffer = np.roll(st.session_state.waveform_buffer, -1)
-        st.session_state.waveform_buffer[-1] = sample
-        st.session_state.time_buffer = np.roll(st.session_state.time_buffer, -1)
-        st.session_state.time_buffer[-1] = st.session_state.time_buffer[-2] + 1/fs
+    beat_index = 0
+    while st.session_state.running:
+        if beat_index >= len(beat_wave):
+            beat_wave = generate_beat_waveform()
+            beat_index = 0
+
+        sample = beat_wave[beat_index]
+        beat_index += 1
+
+        waveform_buffer = np.roll(waveform_buffer, -1)
+        waveform_buffer[-1] = sample
+        time_buffer = np.roll(time_buffer, -1)
+        time_buffer[-1] = time_buffer[-2] + 1/fs
 
         # Plot
         fig, ax = plt.subplots(figsize=(12, 4))
-        ax.plot(st.session_state.time_buffer, st.session_state.waveform_buffer, color='red')
+        ax.plot(time_buffer, waveform_buffer, color='red')
         ax.set_title("Live Arterial Blood Pressure Waveform")
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("Pressure (mmHg)")
