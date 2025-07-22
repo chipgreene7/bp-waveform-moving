@@ -8,12 +8,12 @@ import time
 st.set_page_config(page_title="Live ABP Waveform", layout="wide")
 
 # Title
-st.title("🩺 Live Arterial Blood Pressure Waveform")
+st.title("🩺 Live Arterial Blood Pressure Waveform with Dicrotic Notch")
 
 # Sidebar inputs
 st.sidebar.header("Input Blood Pressure")
-systolic = st.sidebar.slider("Systolic Pressure (mmHg)", 20, 280, 120)
-diastolic = st.sidebar.slider("Diastolic Pressure (mmHg)", 10, 160, 80)
+systolic = st.sidebar.slider("Systolic Pressure (mmHg)", 40, 200, 120)
+diastolic = st.sidebar.slider("Diastolic Pressure (mmHg)", 10, 120, 80)
 heart_rate = st.sidebar.slider("Heart Rate (bpm)", 40, 180, 75)
 
 # Derived values
@@ -36,14 +36,16 @@ with col2:
     if st.button("⏹️ Stop"):
         st.session_state.running = False
 
-# Generate one heartbeat waveform
+# Generate one heartbeat waveform with dicrotic notch
 def generate_beat_waveform():
     t = np.linspace(0, cycle_duration, int(fs * cycle_duration))
-    wave = (
-        0.3 * np.sin(2 * np.pi * t / cycle_duration) +
-        0.2 * np.sin(4 * np.pi * t / cycle_duration) +
-        0.1 * np.sin(6 * np.pi * t / cycle_duration)
-    )
+    # Simulate systolic upstroke
+    upstroke = np.exp(-((t - 0.2 * cycle_duration) ** 2) / (2 * (0.03 * cycle_duration) ** 2))
+    # Simulate dicrotic notch
+    notch = -0.3 * np.exp(-((t - 0.5 * cycle_duration) ** 2) / (2 * (0.01 * cycle_duration) ** 2))
+    # Simulate diastolic decay
+    decay = np.exp(-3 * t / cycle_duration)
+    wave = upstroke + notch + decay
     wave = (wave - wave.min()) / (wave.max() - wave.min())
     return diastolic + wave * (systolic - diastolic)
 
