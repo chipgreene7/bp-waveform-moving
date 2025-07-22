@@ -36,18 +36,18 @@ with col2:
     if st.button("⏹️ Stop"):
         st.session_state.running = False
 
-# Generate one heartbeat waveform with dicrotic notch
-def generate_beat_waveform():
+# Generate one realistic ABP waveform beat
+def generate_abp_waveform():
     t = np.linspace(0, cycle_duration, int(fs * cycle_duration))
-    # Simulate systolic upstroke
+    # Systolic upstroke: sharp rise
     upstroke = np.exp(-((t - 0.15 * cycle_duration) ** 2) / (2 * (0.02 * cycle_duration) ** 2))
-    # Simulate dicrotic notch
+    # Dicrotic notch: small dip
     notch = -0.2 * np.exp(-((t - 0.4 * cycle_duration) ** 2) / (2 * (0.01 * cycle_duration) ** 2))
-    # Simulate diastolic decay
-    decay = np.exp(-2 * t / cycle_duration)
-    wave = upstroke + notch + decay
-    wave = (wave - wave.min()) / (wave.max() - wave.min())
-    return diastolic + wave * (systolic - diastolic)
+    # Diastolic decay: exponential fall
+    decay = np.exp(-3 * t / cycle_duration)
+    waveform = upstroke + notch + decay
+    waveform = (waveform - waveform.min()) / (waveform.max() - waveform.min())
+    return diastolic + waveform * (systolic - diastolic)
 
 # Initialize buffer
 waveform_buffer = np.full(buffer_size, diastolic)
@@ -57,17 +57,11 @@ time_buffer = np.linspace(-window_duration, 0, buffer_size)
 plot_placeholder = st.empty()
 
 # Live update loop
-if st.session_state.running:
-    beat_wave = generate_beat_waveform()
-    beat_index = 0
-    while st.session_state.running:
-        if beat_index >= len(beat_wave):
-            beat_wave = generate_beat_waveform()
-            beat_index = 0
-
-        sample = beat_wave[beat_index]
-        beat_index += 1
-
+while st.session_state.running:
+    beat_wave = generate_abp_waveform()
+    for sample in beat_wave:
+        if not st.session_state.running:
+            break
         waveform_buffer = np.roll(waveform_buffer, -1)
         waveform_buffer[-1] = sample
         time_buffer = np.roll(time_buffer, -1)
