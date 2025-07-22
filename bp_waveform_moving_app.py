@@ -26,6 +26,9 @@ buffer_size = int(fs * window_duration)
 # Session state for control
 if "running" not in st.session_state:
     st.session_state.running = False
+if "waveform_buffer" not in st.session_state:
+    st.session_state.waveform_buffer = np.full(buffer_size, diastolic)
+    st.session_state.time_buffer = np.linspace(-window_duration, 0, buffer_size)
 
 # Start/Stop buttons
 col1, col2 = st.columns(2)
@@ -49,27 +52,23 @@ def generate_beat_waveform():
     wave = (wave - wave.min()) / (wave.max() - wave.min())
     return diastolic + wave * (systolic - diastolic)
 
-# Initialize buffer
-waveform_buffer = np.full(buffer_size, diastolic)
-time_buffer = np.linspace(-window_duration, 0, buffer_size)
-
 # Placeholder for plot
 plot_placeholder = st.empty()
 
 # Live update loop
-while st.session_state.running:
+if st.session_state.running:
     beat_wave = generate_beat_waveform()
     for sample in beat_wave:
         if not st.session_state.running:
             break
-        waveform_buffer = np.roll(waveform_buffer, -1)
-        waveform_buffer[-1] = sample
-        time_buffer = np.roll(time_buffer, -1)
-        time_buffer[-1] = time_buffer[-2] + 1/fs
+        st.session_state.waveform_buffer = np.roll(st.session_state.waveform_buffer, -1)
+        st.session_state.waveform_buffer[-1] = sample
+        st.session_state.time_buffer = np.roll(st.session_state.time_buffer, -1)
+        st.session_state.time_buffer[-1] = st.session_state.time_buffer[-2] + 1/fs
 
         # Plot
         fig, ax = plt.subplots(figsize=(12, 4))
-        ax.plot(time_buffer, waveform_buffer, color='red')
+        ax.plot(st.session_state.time_buffer, st.session_state.waveform_buffer, color='red')
         ax.set_title("Live Arterial Blood Pressure Waveform")
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("Pressure (mmHg)")
@@ -78,3 +77,4 @@ while st.session_state.running:
         plot_placeholder.pyplot(fig)
 
         time.sleep(1/fs)
+
