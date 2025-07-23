@@ -3,107 +3,115 @@ import matplotlib.pyplot as plt
 import streamlit as st
 import time
 
-# --- Layout config ---
+# Page setup
 st.set_page_config(layout="wide")
 
-# --- Waveform Generators ---
+# --- ECG Waveform Generator ---
+def synthetic_ecg(t, hr=75, rhythm="Normal"):
+    beats_per_second = hr / 60.0
+    r_wave_positions = np.arange(0, t[-1], 1.0 / beats_per_second)
+    signal = np.zeros_like(t)
+    for r in r_wave_positions:
+        idx = np.argmin(np.abs(t - r))
+        if rhythm == "Normal":
+            signal[idx] = 1.2
+            if idx + 1 < len(signal):
+                signal[idx + 1] = -0.5
+        elif rhythm == "AFib":
+            signal[idx] = 0.3 * np.random.randn()
+        elif rhythm == "V-Tach":
+            signal[idx:idx + 3] = 1.0  # wide complex
+    signal = np.convolve(signal, np.exp(-np.linspace(0, 2, 30)), mode='same')
+    return signal
 
-def generate_ecg_waveform(rhythm_type, duration=1.0, fs=500):
-    t = np.linspace(0, duration, int(duration * fs))
-    if rhythm_type == "Normal Sinus Rhythm":
-        ecg = 0.6 * np.sin(2 * np.pi * 1.0 * t) + 0.2 * np.sin(2 * np.pi * 2.0 * t)
-    elif rhythm_type == "Atrial Fibrillation":
-        ecg = 0.2 * np.random.randn(len(t)) + 0.3 * np.sin(2 * np.pi * 5.5 * t)
-    elif rhythm_type == "Ventricular Tachycardia":
-        ecg = 0.8 * np.sign(np.sin(2 * np.pi * 3 * t))
-    elif rhythm_type == "Sinus Tachycardia":
-        ecg = 0.6 * np.sin(2 * np.pi * 2.0 * t) + 0.2 * np.sin(2 * np.pi * 4.0 * t)
-    else:
-        ecg = np.zeros_like(t)
-    return t, ecg
+# --- ABP Waveform Generator ---
+def generate_abp(t, hr=75, sys=120, dia=80):
+    wave = np.zeros_like(t)
+    beat_interval = 60.0 / hr
+    num_beats = int(t[-1] / beat_interval)
+    for i in range(num_beats):
+        start = int((i * beat_interval) * len(t) / t[-1])
+        end = start + int(0.3 * len(t) / t[-1])
+        if end < len(t):
+            peak = np.hanning(end - start)
+            peak = peak**3
+            wave[start:end] += peak
+    wave = (wave - np.min(wave)) / (np.max(wave) - np.min(wave))
+    wave = wave * (sys - dia) + dia
+    return wave
 
-def generate_bp_waveform(sys=120, dia=80, duration=1.0, fs=500):
-    t = np.linspace(0, duration, int(duration * fs))
-    waveform = (
-        0.3 * np.sin(2 * np.pi * 1.0 * t) +
-        0.15 * np.sin(4 * np.pi * t) +
-        0.05 * np.exp(-20 * (t - 0.3)**2)
-    )
-    waveform = (waveform - np.min(waveform)) / (np.max(waveform) - np.min(waveform))
-    waveform = waveform * (sys - dia) + dia
-    return t, waveform
-
-def generate_resp_waveform(rr=16, duration=1.0, fs=500):
-    t = np.linspace(0, duration, int(duration * fs))
-    waveform = 0.8 * np.sin(2 * np.pi * (rr / 60.0) * t)
-    return t, waveform
+# --- Plethysmographic Waveform Generator ---
+def generate_pleth(t, hr=75):
+    signal = 0.3 * np.sin(2 * np.pi * (hr / 60.0) * t)
+    signal += 0.05 * np.sin(4 * np.pi * (hr / 60.0) * t)
+    return signal
 
 # --- Presets ---
 preset_cases = {
-    "Normal": {"ecg": "Normal Sinus Rhythm", "sys": 120, "dia": 80, "rr": 16},
-    "Sepsis": {"ecg": "Sinus Tachycardia", "sys": 90, "dia": 50, "rr": 28},
-    "Hypovolemic Shock": {"ecg": "Sinus Tachycardia", "sys": 80, "dia": 40, "rr": 30},
-    "AFib RVR": {"ecg": "Atrial Fibrillation", "sys": 110, "dia": 70, "rr": 22},
-    "V-Tach": {"ecg": "Ventricular Tachycardia", "sys": 70, "dia": 40, "rr": 26},
-    "Custom": {}  # Custom case controlled by user
+    "Normal": {"hr": 75, "sys": 120, "dia": 80, "rhythm": "Normal"},
+    "AFib RVR": {"hr": 130, "sys": 110, "dia": 70, "rhythm": "AFib"},
+    "V-Tach": {"hr": 160, "sys": 80, "dia": 40, "rhythm": "V-Tach"},
+    "Hypovolemic Shock": {"hr": 125, "sys": 85, "dia": 50, "rhythm": "Normal"},
+    "Custom": {},
 }
 
-ecg_types = ["Normal Sinus Rhythm", "Sinus Tachycardia", "Atrial Fibrillation", "Ventricular Tachycardia"]
+ecg_types = ["Normal", "AFib", "V-Tach"]
 
 # --- Sidebar UI ---
 st.sidebar.title("🩺 VitalSim Case Selector")
 selected_case = st.sidebar.selectbox("Choose a Scenario", list(preset_cases.keys()))
 
 if selected_case == "Custom":
-    st.sidebar.markdown("### Customize Vital Signs")
+    hr = st.sidebar.slider("Heart Rate (bpm)", 30, 180, 75)
     sys = st.sidebar.slider("Systolic BP", 60, 200, 120)
     dia = st.sidebar.slider("Diastolic BP", 30, 120, 80)
-    rr = st.sidebar.slider("Respiratory Rate (bpm)", 6, 40, 16)
-    ecg_type = st.sidebar.selectbox("ECG Rhythm", ecg_types)
+    rhythm = st.sidebar.selectbox("ECG Rhythm", ecg_types)
 else:
     case = preset_cases[selected_case]
+    hr = case["hr"]
     sys = case["sys"]
     dia = case["dia"]
-    rr = case["rr"]
-    ecg_type = case["ecg"]
+    rhythm = case["rhythm"]
+
+# --- Timebase ---
+fs = 500
+duration = 8  # seconds on screen
+t = np.linspace(0, duration, duration * fs)
 
 # --- Layout ---
 col1, col2 = st.columns(2)
-placeholder1 = col1.empty()
-placeholder2 = col2.empty()
-placeholder3 = st.empty()
+ecg_placeholder = col1.empty()
+abp_placeholder = col2.empty()
+pleth_placeholder = st.empty()
 
-fs = 500
-duration = 2  # seconds
-
-# --- Real-time Simulation Loop ---
+# --- Live Simulation Loop ---
 for _ in range(200):
-    t_ecg, ecg = generate_ecg_waveform(ecg_type, duration, fs)
-    t_bp, bp = generate_bp_waveform(sys, dia, duration, fs)
-    t_resp, resp = generate_resp_waveform(rr, duration, fs)
+    ecg = synthetic_ecg(t, hr, rhythm)
+    abp = generate_abp(t, hr, sys, dia)
+    pleth = generate_pleth(t, hr)
 
-    # ECG
-    fig1, ax1 = plt.subplots(figsize=(8, 2))
-    ax1.plot(t_ecg, ecg, color="red")
-    ax1.set_ylim(-1.5, 1.5)
-    ax1.axis("off")
-    ax1.set_title(f"ECG: {ecg_type}", fontsize=12)
-    placeholder1.pyplot(fig1)
+    # ECG plot
+    fig_ecg, ax = plt.subplots(figsize=(8, 2))
+    ax.plot(t, ecg, color='red')
+    ax.set_ylim(-1, 1.5)
+    ax.axis("off")
+    ax.set_title(f"ECG ({rhythm}, HR: {hr} bpm)", fontsize=12)
+    ecg_placeholder.pyplot(fig_ecg)
 
-    # BP
-    fig2, ax2 = plt.subplots(figsize=(8, 2))
-    ax2.plot(t_bp, bp, color="blue")
-    ax2.set_ylim(0, 200)
-    ax2.axis("off")
-    ax2.set_title(f"BP: {sys}/{dia} mmHg", fontsize=12)
-    placeholder2.pyplot(fig2)
+    # ABP plot
+    fig_abp, ax = plt.subplots(figsize=(8, 2))
+    ax.plot(t, abp, color='blue')
+    ax.set_ylim(30, 180)
+    ax.axis("off")
+    ax.set_title(f"ABP: {sys}/{dia} mmHg", fontsize=12)
+    abp_placeholder.pyplot(fig_abp)
 
-    # Respiratory
-    fig3, ax3 = plt.subplots(figsize=(16, 1.8))
-    ax3.plot(t_resp, resp, color="green")
-    ax3.set_ylim(-1.5, 1.5)
-    ax3.axis("off")
-    ax3.set_title(f"Respiratory Rate: {rr} bpm", fontsize=12)
-    placeholder3.pyplot(fig3)
+    # Pleth plot
+    fig_pleth, ax = plt.subplots(figsize=(16, 2))
+    ax.plot(t, pleth, color='green')
+    ax.set_ylim(-0.6, 0.6)
+    ax.axis("off")
+    ax.set_title(f"SpO₂ Pleth (HR: {hr} bpm)", fontsize=12)
+    pleth_placeholder.pyplot(fig_pleth)
 
     time.sleep(0.5)
